@@ -17,5 +17,5 @@
     - Javascript
 
 ## Todo
-    - fix issue with multiple prompts 
+    - [Done] fix issue with multiple prompts 
     
