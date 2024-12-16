@@ -29,47 +29,58 @@ app.post('/generate-image', async (req, res) => {
     }
 
     try {
-        const images = await Promise.all(
-            prompts.map(async (prompt) => {                
-                if(prompt != '') {
-                    // console.log(`Processing prompt = ${prompt}`);
-                    const response = await axios.post(
-                        'https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5',
-                        { inputs: prompt },
-                        {
-                            headers: {
-                                Authorization: `Bearer ${process.env.HF_API_TOKEN}`,
-                                'Content-Type': 'application/json',
-                            },
-                            responseType: 'arraybuffer', 
-                        }
-                    );
-                    
-                    return Buffer.from(response.data); 
-                }                
+        const responses = await Promise.all(
+            prompts.map(async (prompt) => {
+                const response = await axios.post('https://api.openai.com/v1/images/generations', {
+                    prompt: prompt,
+                    n: 1, 
+                    size: "1024x1024" 
+                }, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 
+                    },
+                });
+
+                if (response.data && response.data.data && response.data.data.length > 0) {
+                    return response.data.data[0].url; 
+                } else {
+                    throw new Error('Failed to generate image for prompt: ' + prompt);
+                }
             })
         );
 
-        // Create collage using `sharp`
+        // Create the collage using `sharp` library
+        const images = await Promise.all(responses.map(async (url) => {
+            const imageResponse = await axios.get(url, { responseType: 'arraybuffer' });
+            const imageBuffer = Buffer.from(imageResponse.data);
+
+            // Resize the image to a standard size (e.g., 512x512) for 
+            // 'sharp' to use it to compose and create the collage
+            return await sharp(imageBuffer)
+                .resize(512, 512) 
+                .toBuffer();
+        }));
+
         const collage = await sharp({
             create: {
                 width: 512 * prompts.length, 
                 height: 512, 
                 channels: 3,
-                background: { r: 255, g: 255, b: 255 }, 
+                background: { r: 255, g: 255, b: 255 },
             },
         })
-            .composite(
-                images.map((img, index) => ({
-                    input: img,
-                    left: index * 512, 
-                    top: 0, 
-                }))
-            )
-            .png()
-            .toBuffer();
+        .composite(
+            images.map((img, index) => ({
+                input: img,
+                left: index * 512, 
+                top: 0, 
+            }))
+        )
+        .png()
+        .toBuffer();
 
-        // Send the generated collage as a response
+        
         res.set('Content-Type', 'image/png');
         res.send(collage); 
     } catch (error) {
